@@ -84,3 +84,4 @@ node_modules/
 # Build output produced by `npm run prepare-zip`
 Flows*.zip
 flows/percy/
+flows-ios/percy/

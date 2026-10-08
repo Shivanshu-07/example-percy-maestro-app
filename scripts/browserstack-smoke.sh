@@ -10,8 +10,9 @@
 # Required env:
 #   BROWSERSTACK_USERNAME, BROWSERSTACK_ACCESS_KEY, PERCY_TOKEN (App project)
 # Optional env:
+#   PLATFORM             android (default) or ios
 #   MAESTRO_VERSION      maestroVersion for the build (unset = BrowserStack default)
-#   BS_DEVICE            device to run on (default: Samsung Galaxy S22-12.0)
+#   BS_DEVICE            device to run on (default: Samsung Galaxy S22-12.0 / iPhone 14-16)
 #   EXPECTED_SNAPSHOTS   snapshots that must reach Percy (default: 4)
 #   PERCY_BRANCH         Percy branch for the build (default: maestro-smoke-<version>)
 #   BS_API               BrowserStack API base (default: https://api-cloud.browserstack.com)
@@ -30,10 +31,29 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 : "${BROWSERSTACK_ACCESS_KEY:?BROWSERSTACK_ACCESS_KEY is required}"
 : "${PERCY_TOKEN:?PERCY_TOKEN is required}"
 
+PLATFORM="${PLATFORM:-android}"
+case "$PLATFORM" in
+  android)
+    APP_FILE="$ROOT_DIR/resources/app-debug.apk"
+    FLOWS_DIR="$ROOT_DIR/flows"
+    DEFAULT_DEVICE="Samsung Galaxy S22-12.0"
+    ;;
+  ios)
+    APP_FILE="$ROOT_DIR/resources/BStackSampleApp.ipa"
+    FLOWS_DIR="$ROOT_DIR/flows-ios"
+    DEFAULT_DEVICE="iPhone 14-16"
+    ;;
+  *)
+    echo "Error: PLATFORM must be android or ios (got '$PLATFORM')" >&2
+    exit 1
+    ;;
+esac
+ZIP_OUT="$ROOT_DIR/Flows-$PLATFORM.zip"
+
 MAESTRO_VERSION="${MAESTRO_VERSION:-}"
-BS_DEVICE="${BS_DEVICE:-Samsung Galaxy S22-12.0}"
+BS_DEVICE="${BS_DEVICE:-$DEFAULT_DEVICE}"
 EXPECTED_SNAPSHOTS="${EXPECTED_SNAPSHOTS:-4}"
-PERCY_BRANCH="${PERCY_BRANCH:-maestro-smoke-${MAESTRO_VERSION:-default}}"
+PERCY_BRANCH="${PERCY_BRANCH:-maestro-smoke-$PLATFORM-${MAESTRO_VERSION:-default}}"
 BS_API="${BS_API:-https://api-cloud.browserstack.com}"
 SMOKE_TIMEOUT_SECS="${SMOKE_TIMEOUT_SECS:-1800}"
 
@@ -46,14 +66,14 @@ MAESTRO_API="$BS_API/app-automate/maestro/v2"
 
 bs() { curl -sS --fail-with-body -u "$AUTH" "$@"; }
 
-echo "==> Maestro version: ${MAESTRO_VERSION:-<BrowserStack default>} | device: $BS_DEVICE | expecting $EXPECTED_SNAPSHOTS snapshots"
+echo "==> $PLATFORM | Maestro version: ${MAESTRO_VERSION:-<BrowserStack default>} | device: $BS_DEVICE | expecting $EXPECTED_SNAPSHOTS snapshots"
 
-echo "==> Preparing Flows.zip"
-bash "$SCRIPT_DIR/prepare-zip.sh"
+echo "==> Preparing $(basename "$ZIP_OUT")"
+FLOWS_DIR="$FLOWS_DIR" ZIP_OUT="$ZIP_OUT" bash "$SCRIPT_DIR/prepare-zip.sh"
 
 echo "==> Uploading app and test suite"
-APP_URL=$(bs -X POST "$MAESTRO_API/app" -F "file=@$ROOT_DIR/resources/app-debug.apk" | jq -r '.app_url')
-SUITE_URL=$(bs -X POST "$MAESTRO_API/test-suite" -F "file=@$ROOT_DIR/Flows.zip" | jq -r '.test_suite_url')
+APP_URL=$(bs -X POST "$MAESTRO_API/app" -F "file=@$APP_FILE" | jq -r '.app_url')
+SUITE_URL=$(bs -X POST "$MAESTRO_API/test-suite" -F "file=@$ZIP_OUT" | jq -r '.test_suite_url')
 if [[ "$APP_URL" != bs://* || "$SUITE_URL" != bs://* ]]; then
   echo "Error: upload failed (app=$APP_URL suite=$SUITE_URL)" >&2
   exit 1
@@ -67,7 +87,7 @@ BODY=$(jq -n \
   '{app: $app, testSuite: $suite, devices: [$device], project: "percy-maestro-smoke",
     appPercy: {PERCY_TOKEN: $token, env: {PERCY_BRANCH: $branch}}}
    + (if $version == "" then {} else {maestroVersion: $version} end)')
-BUILD_ID=$(bs -X POST "$MAESTRO_API/android/build" -H "Content-Type: application/json" -d "$BODY" | jq -r '.build_id // empty')
+BUILD_ID=$(bs -X POST "$MAESTRO_API/$PLATFORM/build" -H "Content-Type: application/json" -d "$BODY" | jq -r '.build_id // empty')
 if [ -z "$BUILD_ID" ]; then
   echo "Error: BrowserStack did not return a build_id" >&2
   exit 1
@@ -108,14 +128,15 @@ echo "    ${RAN_VERSION:-Maestro Version: <not found in logs>}"
 UPLOADED=$(grep -a -o -E "\[percy\] (Done: .*snapshot\[name\]=[A-Za-z0-9_-]+|Screenshot '[A-Za-z0-9_-]+' uploaded)" <<<"$LOGS" \
   | sed -E "s/.*snapshot\[name\]=//; s/.*Screenshot '([^']+)'.*/\1/" | sort -u || true)
 UPLOADED_COUNT=$(grep -c . <<<"$UPLOADED" || true)
-PERCY_ERRORS=$(grep -a -o -E '\[percy\] (Upload failed|Error|DISABLED|SKIPPED)[^"\\]*' <<<"$LOGS" | sort -u || true)
+PERCY_LINES=$(grep -a -o -E '\[percy\] .*' <<<"$LOGS" | sort -u || true)
+PERCY_ERRORS=$(grep -E '^\[percy\] +(Upload failed|Error|DISABLED|SKIPPED)' <<<"$PERCY_LINES" || true)
 PERCY_BUILD_ID=$(grep -a -o -m1 -E 'build_id=[0-9]+' <<<"$LOGS" | cut -d= -f2 || true)
 
 echo "==> Snapshots uploaded to Percy: $UPLOADED_COUNT/$EXPECTED_SNAPSHOTS"
 [ -n "$UPLOADED" ] && sed 's/^/    - /' <<<"$UPLOADED"
 if [ -n "$PERCY_ERRORS" ]; then
-  echo "==> Percy SDK errors:"
-  sed 's/^/    /' <<<"$PERCY_ERRORS"
+  echo "==> Percy SDK log (errors found):"
+  grep -v -E "^\[percy\] (Uploading:|Done:|Screenshot '.*' uploaded)" <<<"$PERCY_LINES" | sed 's/^/    /'
 fi
 
 if [ "$STATUS" != "passed" ] || [ "$UPLOADED_COUNT" -ne "$EXPECTED_SNAPSHOTS" ] || [ -n "$PERCY_ERRORS" ]; then

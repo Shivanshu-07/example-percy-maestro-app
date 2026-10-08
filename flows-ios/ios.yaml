@@ -1,0 +1,46 @@
+appId: com.browserstack.Sample-iOS
+env:
+  PERCY_ORIENTATION: "portrait"
+---
+# iOS counterpart of screenshot.yaml + regions.yaml, against the BrowserStack
+# sample iOS app (resources/BStackSampleApp.ipa). Used by
+# scripts/browserstack-smoke.sh with PLATFORM=ios. iOS element regions
+# support `id` selectors only.
+
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "Text Button"
+    timeout: 15000
+
+# Snapshot 1: launch screen
+- runFlow:
+    file: percy/flows/percy-screenshot.yaml
+    env:
+      SCREENSHOT_NAME: "iOS_launch"
+
+# Snapshot 2: coordinate region (masks the status bar)
+- runFlow:
+    file: percy/flows/percy-screenshot.yaml
+    env:
+      SCREENSHOT_NAME: "iOS_regions_coordinate"
+      PERCY_REGIONS: '[{"top":0,"bottom":150,"left":0,"right":1170,"algorithm":"ignore"}]'
+
+# Snapshot 3: element region
+- runFlow:
+    file: percy/flows/percy-screenshot.yaml
+    env:
+      SCREENSHOT_NAME: "iOS_regions_element"
+      PERCY_REGIONS: '[{"element":{"id":"Text Button"},"algorithm":"ignore"}]'
+
+# Snapshot 4: after navigating to the text screen
+- tapOn:
+    id: "Text Button"
+- extendedWaitUntil:
+    visible:
+      id: "Text Input"
+    timeout: 15000
+- runFlow:
+    file: percy/flows/percy-screenshot.yaml
+    env:
+      SCREENSHOT_NAME: "iOS_text_screen"

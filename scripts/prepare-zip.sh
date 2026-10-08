@@ -10,8 +10,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SDK_PERCY="$ROOT_DIR/node_modules/@percy/maestro-app/percy"
-FLOWS_DIR="$ROOT_DIR/flows"
-ZIP_OUT="$ROOT_DIR/Flows.zip"
+FLOWS_DIR="${FLOWS_DIR:-$ROOT_DIR/flows}"
+ZIP_OUT="${ZIP_OUT:-$ROOT_DIR/Flows.zip}"
 
 if [ ! -d "$SDK_PERCY" ]; then
   echo "Error: $SDK_PERCY not found." >&2
