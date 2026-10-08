@@ -5,6 +5,7 @@
   "description": "Example app demonstrating Percy visual testing with Maestro on BrowserStack",
   "scripts": {
     "prepare-zip": "bash scripts/prepare-zip.sh",
+    "smoke:browserstack": "bash scripts/browserstack-smoke.sh",
     "clean": "rm -rf flows/percy Flows.zip"
   },
   "devDependencies": {
